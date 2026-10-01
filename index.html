@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="h-full bg-[#070a13] text-slate-100 select-none overflow-x-hidden">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMRT METRO OCC MATRIX 3D - HOLLYWOOD PROP ENGINE</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        orbitron: ['Orbitron', 'sans-serif'],
+                        mono: ['Share Tech Mono', 'monospace'],
+                        rajdhani: ['Rajdhani', 'sans-serif'],
+                    },
+                    colors: {
+                        hud: {
+                            cyan: '#00f3ff',
+                            amber: '#ffaa00',
+                            crimson: '#ff0055',
+                            emerald: '#00ff88',
+                            purple: '#b026ff',
+                            dark: '#070a13',
+                            panel: 'rgba(11, 17, 30, 0.78)',
+                            border: 'rgba(0, 243, 255, 0.28)',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- External Libraries: Three.js, GSAP, ScrollTrigger, Lucide Icons -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: rgba(5, 10, 20, 0.9); }
+        ::-webkit-scrollbar-thumb { background: #00f3ff; border-radius: 2px; box-shadow: 0 0 8px #00f3ff; }
+
+        .glass-hud {
+            background: rgba(10, 16, 28, 0.82);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(0, 243, 255, 0.25);
+            box-shadow: inset 0 0 20px rgba(0, 243, 255, 0.05), 0 8px 32px rgba(0, 0, 0, 0.7);
+            transition: transform 0.15s ease-out, border-color 0.3s ease, box-shadow 0.3s ease;
+            transform-style: preserve-3d;
+            perspective: 1000px;
+        }
+
+        .glass-hud:hover {
+            border-color: rgba(0, 243, 255, 0.6);
+            box-shadow: inset 0 0 25px rgba(0, 243, 255, 0.15), 0 12px 40px rgba(0, 243, 255, 0.22);
+        }
+
+        .hud-corner {
+            position: relative;
+        }
+        .hud-corner::before, .hud-corner::after {
+            content: '';
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-color: #00f3ff;
+            pointer-events: none;
+        }
+        .hud-corner::before { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; }
+        .hud-corner::after { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; }
+
+        .scanline-overlay {
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0, 0, 0, 0.25) 50%,
+                rgba(0, 0, 0, 0.25)
+            );
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        .neon-text-cyan { text-shadow: 0 0 10px rgba(0, 243, 255, 0.8); }
+        .neon-text-red { text-shadow: 0 0 10px rgba(255, 0, 85, 0.9); }
+        .neon-text-amber { text-shadow: 0 0 10px rgba(255, 170, 0, 0.8); }
+
+        .hud-tag {
+            position: absolute;
+            transform: translate(-50%, -100%);
+            pointer-events: auto;
+            cursor: pointer;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+            will-change: transform, left, top;
+        }
+
+        .hud-tag:hover {
+            transform: translate(-50%, -108%) scale(1.08);
+            border-color: #00f3ff !important;
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.6);
+        }
+
+        /* CCTV Glitch FX & CRT Lines */
+        .cctv-scanline {
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.4) 50%);
+            background-size: 100% 3px;
+        }
+
+        /* Terminal Scroll Bar */
+        .log-terminal::-webkit-scrollbar { width: 3px; }
+        .log-terminal::-webkit-scrollbar-thumb { background: rgba(0, 243, 255, 0.4); }
+    </style>
+</head>
+<body class="h-full bg-[#070a13] font-rajdhani text-slate-100 relative antialiased">
+
+    <!-- 3D WebGL Canvas Layer -->
+    <div id="webgl-container" class="fixed inset-0 z-0"></div>
+
+    <!-- Scanline & Flash Overlay -->
+    <div class="scanline-overlay fixed inset-0 z-10"></div>
+    <div id="emergency-flash" class="fixed inset-0 z-10 bg-red-600/10 pointer-events-none opacity-0 transition-opacity duration-300"></div>
+
+    <!-- 3D Anchored HTML Tags Container -->
+    <div id="hud-tags-container" class="fixed inset-0 z-20 pointer-events-none overflow-hidden">
+        <!-- Dynamic Floating 3D Labels -->
+    </div>
+
+    <!-- TOP FIXED HUD NAVIGATION HEADER -->
+    <header class="fixed top-0 left-0 right-0 z-40 px-4 py-2 bg-[#070a13]/85 backdrop-blur-md border-b border-hud-cyan/30 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="relative flex items-center justify-center">
+                <span class="animate-ping absolute inline-flex h-4 w-4 rounded-full bg-hud-cyan opacity-75"></span>
+                <div class="w-3 h-3 bg-hud-cyan rounded-full shadow-[0_0_12px_#00f3ff]"></div>
+            </div>
+            <div>
+                <h1 class="font-orbitron font-extrabold text-base md:text-lg tracking-widest text-hud-cyan neon-text-cyan flex items-center gap-2">
+                    TAIPEI METRO 3D OCC <span class="text-[10px] px-2 py-0.5 bg-hud-cyan/10 border border-hud-cyan/40 rounded text-hud-cyan font-mono">3D 戰情矩陣 v6.5 PRO</span>
+                </h1>
+                <p class="text-[10px] text-slate-400 font-mono tracking-wider">實時 3D 遙測與動態分鏡控制系統 (3D TELEMETRY & DIRECT CAM)</p>
+            </div>
+        </div>
+
+        <!-- Mode Navigation Tabs -->
+        <nav class="hidden md:flex items-center space-x-1 font-orbitron text-xs">
+            <button onclick="navToChapter(1)" id="tab-ch1" class="px-3 py-1.5 rounded border border-hud-cyan/60 bg-hud-cyan/20 text-hud-cyan font-bold transition flex items-center gap-1.5">
+                <i data-lucide="grid" class="w-3.5 h-3.5"></i> CH.1 全線監控
+            </button>
+            <button onclick="navToChapter(2)" id="tab-ch2" class="px-3 py-1.5 rounded border border-slate-700 hover:border-hud-cyan/40 text-slate-400 hover:text-hud-cyan transition flex items-center gap-1.5">
+                <i data-lucide="navigation" class="w-3.5 h-3.5"></i> CH.2 車載巡航
+            </button>
+            <button onclick="navToChapter(3)" id="tab-ch3" class="px-3 py-1.5 rounded border border-hud-crimson/40 text-slate-400 hover:text-hud-crimson transition flex items-center gap-1.5">
+                <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> CH.3 危機處置
+            </button>
+            <button onclick="navToChapter(4)" id="tab-ch4" class="px-3 py-1.5 rounded border border-slate-700 hover:border-hud-amber/40 text-slate-400 hover:text-hud-amber transition flex items-center gap-1.5">
+                <i data-lucide="cpu" class="w-3.5 h-3.5"></i> CH.4 智慧調度
+            </button>
+            <button onclick="navToChapter(5)" id="tab-ch5" class="px-3 py-1.5 rounded border border-slate-700 hover:border-hud-purple/40 text-slate-400 hover:text-hud-purple transition flex items-center gap-1.5">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5"></i> CH.5 病毒清理
+            </button>
+        </nav>
+
+        <!-- Right System Controls & Camera View Selector -->
+        <div class="flex items-center space-x-3 font-mono text-xs">
+            <div class="hidden xl:flex items-center bg-slate-950 border border-slate-800 rounded p-1 gap-1">
+                <button onclick="setCameraMode('ORBIT')" id="cam-btn-orbit" class="px-2 py-0.5 rounded text-[10px] bg-hud-cyan/20 border border-hud-cyan/60 text-hud-cyan font-bold">全景 (3D)</button>
+                <button onclick="setCameraMode('FPV')" id="cam-btn-fpv" class="px-2 py-0.5 rounded text-[10px] text-slate-400 hover:text-hud-cyan">車頭視角 (FPV)</button>
+                <button onclick="setCameraMode('TOP')" id="cam-btn-top" class="px-2 py-0.5 rounded text-[10px] text-slate-400 hover:text-hud-cyan">俯瞰圖 (2D)</button>
+            </div>
+
+            <div class="hidden lg:flex items-center gap-2">
+                <span class="text-slate-400 text-[10px]">3D 幀率:</span>
+                <span id="fps-counter" class="text-hud-emerald font-bold font-orbitron">60</span>
+            </div>
+            <div class="text-right">
+                <div id="clock-date" class="text-[10px] text-slate-400">2026-09-24 THU</div>
+                <div id="clock-time" class="font-orbitron text-hud-cyan text-sm tracking-wider font-bold">10:52:00.<span class="text-[10px] text-slate-400">000</span></div>
+            </div>
+            <button onclick="toggleAudio()" id="audio-btn" class="px-2.5 py-1 bg-slate-900 border border-hud-cyan/40 text-hud-cyan hover:bg-hud-cyan/20 rounded transition flex items-center gap-1 font-orbitron text-[11px]">
+                <i data-lucide="volume-2" class="w-3.5 h-3.5"></i> <span id="audio-txt">音效: 開</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- FLOATING RIGHT SIDEBAR: CCTV WIREFRAME MONITOR & SYSTEM LOG STREAM -->
+    <aside class="fixed right-4 top-16 z-30 hidden lg:flex flex-col space-y-3 w-72 pointer-events-auto">
+        <div class="glass-hud hud-corner rounded p-3 space-y-2 border-hud-cyan/30">
+            <div class="flex justify-between items-center text-[11px] font-mono border-b border-slate-800 pb-1">
+                <span class="flex items-center gap-1.5 text-hud-cyan font-bold"><i data-lucide="video" class="w-3.5 h-3.5 animate-pulse"></i> CCTV-ST08 [熱成像監控]</span>
+                <span class="text-[9px] px-1.5 py-0.2 bg-red-900/60 border border-red-500 text-red-300 rounded font-orbitron">LIVE</span>
+            </div>
+            <div class="relative w-full h-32 bg-slate-950 rounded border border-slate-800 overflow-hidden flex items-center justify-center">
+                <canvas id="cctv-canvas" class="w-full h-full object-cover"></canvas>
+                <div class="cctv-scanline absolute inset-0 pointer-events-none"></div>
+                <div class="absolute top-1 left-1.5 text-[9px] font-mono text-hud-cyan/80">CAM-04 // TAIPEI MAIN</div>
+                <div class="absolute bottom-1 right-1.5 text-[8px] font-mono text-emerald-400">CBTC-SYNC: 99.8%</div>
+            </div>
+        </div>
+
+        <div class="glass-hud hud-corner rounded p-3 space-y-2 border-hud-cyan/30">
+            <div class="flex justify-between items-center text-[11px] font-mono border-b border-slate-800 pb-1">
+                <span class="flex items-center gap-1 text-slate-300 font-bold"><i data-lucide="terminal" class="w-3.5 h-3.5 text-hud-cyan"></i> 實時通訊日誌 (LOGS)</span>
+                <span class="text-[9px] font-mono text-slate-500">AUTO-STREAM</span>
+            </div>
+            <div id="terminal-logs" class="log-terminal h-36 overflow-y-auto font-mono text-[10px] space-y-1 pr-1 text-slate-300">
+                <!-- Dynamic Log Entries Inserted by JS -->
+            </div>
+        </div>
+    </aside>
+
+    <!-- TELEMETRY DETAILED DIAGNOSTIC MODAL OVERLAY -->
+    <div id="telemetry-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md opacity-0 pointer-events-none transition-opacity duration-300 p-4">
+        <div class="glass-hud hud-corner rounded-lg p-6 max-w-2xl w-full text-slate-100 space-y-4 border-hud-cyan shadow-2xl relative">
+            <button onclick="closeTelemetryModal()" class="absolute top-4 right-4 text-slate-400 hover:text-hud-cyan p-1 transition">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+
+            <div class="flex items-center gap-2 border-b border-hud-cyan/30 pb-3">
+                <i data-lucide="activity" class="w-6 h-6 text-hud-cyan animate-pulse"></i>
+                <div>
+                    <h3 id="modal-title" class="font-orbitron font-extrabold text-lg text-hud-cyan neon-text-cyan">TR-204 深入遙測診斷面板</h3>
+                    <p id="modal-subtitle" class="text-xs font-mono text-slate-400">CBTC 自動駕駛與牽引系統實時波形檢測</p>
+                </div>
+            </div>
+
+            <div class="bg-slate-950 p-3 rounded border border-slate-800 space-y-1">
+                <div class="flex justify-between text-[11px] font-mono">
+                    <span class="text-hud-cyan">受電弓 750V 電壓波形 (Pantograph Oscillation)</span>
+                    <span id="modal-voltage-val" class="text-hud-emerald font-bold font-orbitron">748.2 V DC</span>
+                </div>
+                <canvas id="waveform-canvas" class="w-full h-24 bg-slate-950 rounded"></canvas>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono text-xs">
+                <div class="bg-slate-900/80 p-2.5 rounded border border-slate-800">
+                    <div class="text-[10px] text-slate-400">EAC 空氣煞車壓 (BRAKE)</div>
+                    <div class="text-hud-emerald font-bold font-orbitron">420 kPa [正常]</div>
+                </div>
+                <div class="bg-slate-900/80 p-2.5 rounded border border-slate-800">
+                    <div class="text-[10px] text-slate-400">車廂空調系統 (HVAC)</div>
+                    <div class="text-hud-cyan font-bold font-orbitron">22.5°C [恆溫]</div>
+                </div>
+                <div class="bg-slate-900/80 p-2.5 rounded border border-slate-800">
+                    <div class="text-[10px] text-slate-400">訊號封包延遲 (CBTC LATENCY)</div>
+                    <div class="text-hud-emerald font-bold font-orbitron">8.4 ms</div>
+                </div>
+                <div class="bg-slate-900/80 p-2.5 rounded border border-slate-800">
+                    <div class="text-[10px] text-slate-400">軸承震動指數 (BEARING)</div>
+                    <div class="text-hud-amber font-bold font-orbitron">0.12 G</div>
+                </div>
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button onclick="closeTelemetryModal()" class="px-5 py-2 bg-hud-cyan/20 border border-hud-cyan text-hud-cyan rounded font-orbitron font-bold text-xs hover:bg-hud-cyan/40 transition">
+                    關閉診斷視窗
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN SCROLLABLE STORY DECK (4 CHAPTERS) -->
+    <main id="scroll-container" class="relative z-30 w-full">
+
+        <!-- CHAPTER 1: 全線監控 (GLOBAL OVERVIEW) -->
+        <section id="sec-1" class="min-h-screen p-6 md:p-12 flex flex-col justify-center items-start">
+            <div class="glass-hud hud-corner rounded-lg p-6 max-w-lg w-full text-slate-100 space-y-4 my-20" data-tilt>
+                <div class="flex justify-between items-center border-b border-hud-cyan/30 pb-2">
+                    <span class="text-xs font-mono text-hud-cyan tracking-widest">[CHAPTER 01 // OVERVIEW]</span>
+                    <span class="px-2 py-0.5 bg-hud-cyan/20 border border-hud-cyan text-hud-cyan text-[10px] font-orbitron font-bold rounded">3D 全線路網</span>
+                </div>
+                <h2 class="text-2xl font-orbitron font-extrabold text-hud-cyan neon-text-cyan">全線路網動態監控</h2>
+                <p class="text-xs text-slate-300 leading-relaxed font-mono">
+                    系統實時掃描三大捷運幹線（紅線、藍線、綠線）。3D 向量曲線實時映射列車遙測資料、軌道供電電壓與各站間運量負荷。
+                </p>
+
+                <div class="grid grid-cols-2 gap-3 pt-2 font-mono">
+                    <div class="bg-slate-950/60 p-2.5 rounded border border-slate-800">
+                        <div class="text-[10px] text-slate-400">線上運行列車 (TRAINS)</div>
+                        <div id="cnt-trains" class="text-lg font-orbitron font-bold text-hud-cyan">6</div>
+                    </div>
+                    <div class="bg-slate-950/60 p-2.5 rounded border border-slate-800">
+                        <div class="text-[10px] text-slate-400">路網運作效率 (EFFICIENCY)</div>
+                        <div id="cnt-eff" class="text-lg font-orbitron font-bold text-hud-emerald">99.4%</div>
+                    </div>
+                    <div class="bg-slate-950/60 p-2.5 rounded border border-slate-800">
+                        <div class="text-[10px] text-slate-400">3D 捷運樞紐站 (HUBS)</div>
+                        <div class="text-lg font-orbitron font-bold text-hud-amber">8 站</div>
+                    </div>
+                    <div class="bg-slate-950/60 p-2.5 rounded border border-slate-800">
+                        <div class="text-[10px] text-slate-400">牽引供電負載 (POWER)</div>
+                        <div class="text-lg font-orbitron font-bold text-hud-cyan">72.4 MW</div>
+                    </div>
+                </div>
+
+                <div class="text-[11px] font-mono text-slate-400 flex items-center gap-2 pt-2">
+                    <i data-lucide="mouse-pointer" class="w-4 h-4 text-hud-cyan animate-bounce"></i>
+                    <span>向下滾動頁面或拖曳滑鼠旋轉 3D 鏡頭</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- CHAPTER 2: 車載巡航 (TRAIN CHASE CAM & TELEMETRY) -->
+        <section id="sec-2" class="min-h-screen p-6 md:p-12 flex flex-col justify-center items-end">
+            <div class="glass-hud hud-corner rounded-lg p-6 max-w-lg w-full text-slate-100 space-y-4 my-20" data-tilt>
+                <div class="flex justify-between items-center border-b border-hud-cyan/30 pb-2">
+                    <span class="text-xs font-mono text-hud-cyan tracking-widest">[CHAPTER 02 // CHASE CAM]</span>
+                    <span class="px-2 py-0.5 bg-hud-emerald/20 border border-hud-emerald text-hud-emerald text-[10px] font-orbitron font-bold rounded">鎖定: TR-204</span>
+                </div>
+                <h2 class="text-2xl font-orbitron font-extrabold text-hud-emerald">TR-204 車載單車巡航</h2>
+                <p class="text-xs text-slate-300 leading-relaxed font-mono">
+                    鏡頭鎖定 TR-204 號車（紅線特快列車）。動態監控馬達散熱指標、CBTC 無線號誌陣列與動態坡度。
+                </p>
+
+                <div class="space-y-2 font-mono text-xs pt-1">
+                    <div>
+                        <div class="flex justify-between text-[11px] mb-1">
+                            <span class="text-slate-400">列車行駛速度 (VELOCITY)</span>
+                            <span id="tr-speed-val" class="text-hud-cyan font-bold font-orbitron">72 KM/H</span>
+                        </div>
+                        <div class="w-full h-2 bg-slate-950 rounded overflow-hidden border border-slate-800">
+                            <div id="tr-speed-bar" class="h-full bg-hud-cyan transition-all duration-300" style="width: 72%"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-[11px] mb-1">
+                            <span class="text-slate-400">主馬達工作溫度 (MOTOR TEMP)</span>
+                            <span id="tr-temp-val" class="text-hud-amber font-bold font-orbitron">58 °C</span>
+                        </div>
+                        <div class="w-full h-2 bg-slate-950 rounded overflow-hidden border border-slate-800">
+                            <div id="tr-temp-bar" class="h-full bg-hud-amber transition-all duration-300" style="width: 58%"></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="flex justify-between text-[11px] mb-1">
+                            <span class="text-slate-400">車廂擁擠度 (CROWD DENSITY)</span>
+                            <span class="text-hud-emerald font-bold font-orbitron">38% (舒適)</span>
+                        </div>
+                        <div class="w-full h-2 bg-slate-950 rounded overflow-hidden border border-slate-800">
+                            <div class="h-full bg-hud-emerald" style="width: 38%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <button onclick="triggerBoostTR204()" class="w-full py-2 bg-hud-emerald/20 hover:bg-hud-emerald/40 border border-hud-emerald text-hud-emerald rounded font-orbitron font-bold text-xs tracking-wider transition flex items-center justify-center gap-2">
+                        <i data-lucide="zap" class="w-4 h-4"></i> ⚡ 超頻驅動 TR-204 推進系統
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- CHAPTER 3: 危機處置 (EMERGENCY CONTAINMENT) -->
+        <section id="sec-3" class="min-h-screen p-6 md:p-12 flex flex-col justify-center items-start">
+            <div class="glass-hud hud-corner rounded-lg p-6 max-w-lg w-full text-slate-100 space-y-4 my-20 border-hud-crimson/50" data-tilt>
+                <div class="flex justify-between items-center border-b border-hud-crimson/30 pb-2">
+                    <span class="text-xs font-mono text-hud-crimson tracking-widest">[CHAPTER 03 // EMERGENCY]</span>
+                    <span class="px-2 py-0.5 bg-hud-crimson/20 border border-hud-crimson text-hud-crimson text-[10px] font-orbitron font-bold rounded animate-pulse">警報: ST-08</span>
+                </div>
+                <h2 class="text-2xl font-orbitron font-extrabold text-hud-crimson neon-text-red">ST-08 突發告警處置</h2>
+                <p class="text-xs text-slate-300 leading-relaxed font-mono">
+                    於 ST-08 台北車站中央樞紐渲染 3D 告警防護罩。感測器回報熱異常與軌道侵入警報。
+                </p>
+
+                <div class="bg-red-950/40 p-3 rounded border border-red-800/80 space-y-3 font-mono text-xs">
+                    <div class="flex items-center justify-between text-red-300 font-bold">
+                        <span class="flex items-center gap-1.5"><i data-lucide="shield-alert" class="w-4 h-4 text-hud-crimson"></i> 軌道區段隔離罩</span>
+                        <span id="hazard-status-text" class="text-hud-crimson font-orbitron">高度危險警示</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="toggleEmergencyDome()" id="btn-isolate" class="py-2 bg-hud-crimson hover:bg-red-600 text-white font-orbitron font-bold text-[11px] rounded transition shadow-[0_0_15px_rgba(255,0,85,0.4)]">
+                            緊急隔離 R-08 軌道
+                        </button>
+                        <button onclick="triggerFireSuppression()" class="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-orbitron font-bold text-[11px] rounded transition">
+                            啟動自動滅火
+                        </button>
+                    </div>
+                </div>
+
+                <div class="text-[10px] font-mono text-slate-400">
+                    系統狀態：安全聯鎖防護機制已觸發，列車自動改道繞行外圍軌道。
+                </div>
+            </div>
+        </section>
+
+        <!-- CHAPTER 4: 智慧調度 (DYNAMIC DISPATCH) -->
+        <section id="sec-4" class="min-h-screen p-6 md:p-12 flex flex-col justify-center items-end">
+            <div class="glass-hud hud-corner rounded-lg p-6 max-w-lg w-full text-slate-100 space-y-4 my-20" data-tilt>
+                <div class="flex justify-between items-center border-b border-hud-amber/30 pb-2">
+                    <span class="text-xs font-mono text-hud-amber tracking-widest">[CHAPTER 04 // DISPATCH]</span>
+                    <span class="px-2 py-0.5 bg-hud-amber/20 border border-hud-amber text-hud-amber text-[10px] font-orbitron font-bold rounded">AI 自動駕駛控制</span>
+                </div>
+                <h2 class="text-2xl font-orbitron font-extrabold text-hud-amber neon-text-amber">中央樞紐智慧調度</h2>
+                <p class="text-xs text-slate-300 leading-relaxed font-mono">
+                    中央樞紐交會點最佳化處理。在動態軌道曲線上實時調度並插入 3D 列車編組，動態壓縮發車班距。
+                </p>
+
+                <div class="space-y-3 font-mono text-xs pt-1">
+                    <div class="flex items-center justify-between bg-slate-950/70 p-2.5 rounded border border-slate-800">
+                        <div>
+                            <div class="text-slate-200 font-bold">緊急加開 3D 列車編組</div>
+                            <div class="text-[10px] text-slate-400">於紅線/藍線軌道即時注入動態列車</div>
+                        </div>
+                        <button onclick="spawn3DTrain()" class="px-3 py-1.5 bg-hud-amber/20 hover:bg-hud-amber/40 border border-hud-amber text-hud-amber rounded font-orbitron font-bold text-xs transition flex items-center gap-1">
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i> 發車調度
+                        </button>
+                    </div>
+
+                    <div class="bg-slate-950/70 p-2.5 rounded border border-slate-800 space-y-2">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-slate-300">發車班距設定 (HEADWAY):</span>
+                            <span id="headway-val" class="text-hud-amber font-bold">180 秒</span>
+                        </div>
+                        <input type="range" id="headway-slider" min="60" max="300" value="180" oninput="adjustHeadway(this.value)" class="w-full accent-hud-amber bg-slate-800 h-1.5 rounded cursor-pointer">
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <button onclick="resetAllSystems()" class="w-full py-2 bg-slate-900 border border-slate-700 hover:border-hud-cyan text-slate-300 hover:text-hud-cyan font-orbitron font-bold text-xs rounded transition">
+                        🔄 重新初始化 OCC 3D 戰情中心
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- CHAPTER 5: 病毒清理 (CYBER VIRUS PURGE MINIGAME) -->
+        <section id="sec-5" class="min-h-screen p-6 md:p-12 flex flex-col justify-center items-start">
+            <div class="glass-hud hud-corner rounded-lg p-6 max-w-lg w-full text-slate-100 space-y-4 my-20 border-hud-purple/50" data-tilt>
+                <div class="flex justify-between items-center border-b border-hud-purple/30 pb-2">
+                    <span class="text-xs font-mono text-hud-purple tracking-widest">[CHAPTER 05 // CYBER PURGE]</span>
+                    <span id="virus-badge" class="px-2 py-0.5 bg-hud-purple/20 border border-hud-purple text-hud-purple text-[10px] font-orbitron font-bold rounded animate-pulse">8-BIT 侵入警報</span>
+                </div>
+                <h2 class="text-2xl font-orbitron font-extrabold text-hud-purple neon-text-purple">數值控制網路 8-Bit 病毒清除</h2>
+                <p class="text-xs text-slate-300 leading-relaxed font-mono">
+                    系統偵測到未知數位小精靈 (Pixel Ghosts) 侵入 CBTC 通訊協定。部署「光子反制戰機」進行動態射擊清除！
+                </p>
+
+                <!-- Mini Game HUD Status Bar -->
+                <div class="grid grid-cols-2 gap-3 font-mono">
+                    <div class="bg-slate-950/70 p-2.5 rounded border border-slate-800">
+                        <div class="text-[10px] text-slate-400">已消滅病毒 (PURGED)</div>
+                        <div id="virus-score" class="text-xl font-orbitron font-bold text-hud-emerald">0</div>
+                    </div>
+                    <div class="bg-slate-950/70 p-2.5 rounded border border-slate-800">
+                        <div class="text-[10px] text-slate-400">系統威脅指數 (THREAT)</div>
+                        <div id="virus-threat" class="text-xl font-orbitron font-bold text-hud-crimson">85%</div>
+                    </div>
+                </div>
+
+                <!-- Action Controls -->
+                <div class="space-y-2 pt-1 font-mono">
+                    <button onclick="toggleVirusGame()" id="btn-toggle-virus-game" class="w-full py-2.5 bg-hud-purple/20 hover:bg-hud-purple/40 border border-hud-purple text-hud-purple rounded font-orbitron font-bold text-xs tracking-wider transition flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(176,38,255,0.3)]">
+                        <i data-lucide="crosshair" class="w-4 h-4"></i> 🚀 啟動光子戰機 (START PURGE)
+                    </button>
+                    
+                    <div id="game-controls-hint" class="hidden text-[11px] bg-slate-950 p-2.5 rounded border border-slate-800 text-slate-300 space-y-1">
+                        <div class="flex justify-between items-center">
+                            <span>🎮 操縱方式：<b>[← / → / ↑ / ↓]</b> 鍵或<b>滑鼠移動</b>控制戰機</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span>⚡ 發射雷射：<b>[空白鍵]</b> 或 <b>[點擊畫面 / 按下方按鈕]</b></span>
+                        </div>
+                        <button onclick="shootLaser()" class="w-full mt-2 py-2 bg-hud-cyan/20 border border-hud-cyan text-hud-cyan rounded font-orbitron font-bold text-xs active:scale-95 transition flex items-center justify-center gap-1">
+                            <i data-lucide="zap" class="w-3.5 h-3.5"></i> 發射光子炮 (FIRE LASER)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        /* SCI-FI WEB AUDIO API SYNTHESIZER */
+        class CyberAudioEngine {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            playBeep(freq = 800, type = 'sine', duration = 0.08, vol = 0.1) {
+                if (!this.enabled) return;
+                this.init();
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                    gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + duration);
+                } catch(e) {}
+            }
+
+            playChime() {
+                if (!this.enabled) return;
+                this.playBeep(523.25, 'sine', 0.12, 0.12);
+                setTimeout(() => this.playBeep(659.25, 'sine', 0.2, 0.12), 90);
+            }
+
+            playAlarm() {
+                if (!this.enabled) return;
+                this.init();
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(850, this.ctx.currentTime);
+                    osc.frequency.linearRampToValueAtTime(400, this.ctx.currentTime + 0.35);
+                    gain.gain.setValueAtTime(0.18, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.35);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.35);
+                } catch(e) {}
+            }
+
+            playLaser() {
+                if (!this.enabled) return;
+                this.init();
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(1200, this.ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(150, this.ctx.currentTime + 0.12);
+                    gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.12);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.12);
+                } catch(e) {}
+            }
+
+            playExplosion() {
+                if (!this.enabled) return;
+                this.init();
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(180, this.ctx.currentTime);
+                    osc.frequency.linearRampToValueAtTime(30, this.ctx.currentTime + 0.25);
+                    gain.gain.setValueAtTime(0.25, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.25);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + 0.25);
+                } catch(e) {}
+            }
+        }
+
+        const audio = new CyberAudioEngine();
+
+        function toggleAudio() {
+            audio.enabled = !audio.enabled;
+            document.getElementById('audio-txt').innerText = audio.enabled ? '音效: 開' : '音效: 關';
+            if (audio.enabled) audio.playBeep(1200);
+        }
+    </script>
+
+    <script>
+        // Lucide Icons Initialization
+        lucide.createIcons();
+
+        /* UTILITY & TELEMETRY UI FUNCTIONS */
+        function pushTerminalLog(message) {
+            const term = document.getElementById('terminal-logs');
+            if (!term) return;
+            const d = new Date();
+            const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+            const entry = document.createElement('div');
+            entry.className = "text-[10px] text-hud-cyan/90 font-mono flex items-start gap-1";
+            entry.innerHTML = `<span class="text-slate-500">[${timeStr}]</span> <span>${message}</span>`;
+            term.appendChild(entry);
+            term.scrollTop = term.scrollHeight;
+        }
+
+        function updateCCTVCanvas() {
+            const canvas = document.getElementById('cctv-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+                canvas.width = canvas.clientWidth || 280;
+                canvas.height = canvas.clientHeight || 120;
+            }
+            const w = canvas.width;
+            const h = canvas.height;
+            ctx.fillStyle = '#030712';
+            ctx.fillRect(0, 0, w, h);
+
+            // Draw grid wireframe
+            ctx.strokeStyle = '#00f3ff22';
+            ctx.lineWidth = 1;
+            const time = Date.now() * 0.002;
+            for (let x = 0; x < w; x += 20) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, h);
+                ctx.stroke();
+            }
+            for (let y = 0; y < h; y += 15) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+
+            // Draw simulated thermal wireframe train
+            ctx.strokeStyle = '#00f3ff';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            const trainX = (time * 30) % (w + 100) - 50;
+            ctx.strokeRect(trainX, h / 2 - 12, 60, 24);
+            ctx.stroke();
+
+            ctx.fillStyle = '#ff0055aa';
+            ctx.beginPath();
+            ctx.arc(trainX + 30, h / 2, 8 + Math.sin(time * 5) * 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        let waveOffset = 0;
+        function drawWaveform() {
+            const canvas = document.getElementById('waveform-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+                canvas.width = canvas.clientWidth || 400;
+                canvas.height = canvas.clientHeight || 96;
+            }
+            const w = canvas.width;
+            const h = canvas.height;
+            ctx.fillStyle = '#030712';
+            ctx.fillRect(0, 0, w, h);
+
+            ctx.strokeStyle = '#00f3ff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            waveOffset += 0.08;
+            for (let x = 0; x < w; x++) {
+                const y = h / 2 + Math.sin(x * 0.05 + waveOffset) * 15 + (Math.random() - 0.5) * 4;
+                if (x === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+
+        function openTelemetryModal(id, name) {
+            audio.playChime();
+            const modal = document.getElementById('telemetry-modal');
+            const title = document.getElementById('modal-title');
+            const sub = document.getElementById('modal-subtitle');
+            if (title) title.innerText = `${id} [${name}] 遙測診斷`;
+            if (sub) sub.innerText = `CBTC 自動駕駛與列車運作狀態波形數據`;
+            if (modal) {
+                modal.classList.remove('opacity-0', 'pointer-events-none');
+            }
+            pushTerminalLog(`DIAGNOSTIC: Opened telemetry modal for ${id}`);
+        }
+
+        function closeTelemetryModal() {
+            audio.playBeep(600);
+            const modal = document.getElementById('telemetry-modal');
+            if (modal) {
+                modal.classList.add('opacity-0', 'pointer-events-none');
+            }
+        }
+
+        function setCameraMode(mode) {
+            currentCameraMode = mode;
+            audio.playBeep(1000);
+            ['orbit', 'fpv', 'top'].forEach(m => {
+                const btn = document.getElementById(`cam-btn-${m}`);
+                if (btn) {
+                    btn.className = (m === mode.toLowerCase())
+                        ? "px-2 py-0.5 rounded text-[10px] bg-hud-cyan/20 border border-hud-cyan/60 text-hud-cyan font-bold"
+                        : "px-2 py-0.5 rounded text-[10px] text-slate-400 hover:text-hud-cyan";
+                }
+            });
+
+            if (mode === 'TOP') {
+                gsap.to(camera.position, { x: 0, y: 70, z: 1, duration: 1.5, ease: "power2.inOut" });
+                gsap.to(currentCamLookAt, { x: 0, y: 0, z: 0, duration: 1.5, ease: "power2.inOut" });
+            } else if (mode === 'ORBIT') {
+                gsap.to(camera.position, { x: 25, y: 30, z: 45, duration: 1.5, ease: "power2.inOut" });
+                gsap.to(currentCamLookAt, { x: 0, y: 2, z: 0, duration: 1.5, ease: "power2.inOut" });
+            }
+            pushTerminalLog(`CAM_MODE: Switched to ${mode}`);
+        }
+
+        function triggerBoostTR204() {
+            if (!trainTR204) return;
+            audio.playChime();
+            const origSpeed = trainTR204.speed;
+            trainTR204.speed *= 2.5;
+            const speedVal = document.getElementById('tr-speed-val');
+            const speedBar = document.getElementById('tr-speed-bar');
+            if (speedVal) speedVal.innerText = '120 KM/H [MAX]';
+            if (speedBar) speedBar.style.width = '100%';
+            pushTerminalLog('BOOST: TR-204 propulsion supercharged to 120 KM/H');
+            setTimeout(() => {
+                trainTR204.speed = origSpeed;
+                if (speedVal) speedVal.innerText = '72 KM/H';
+                if (speedBar) speedBar.style.width = '72%';
+            }, 4000);
+        }
+
+        function toggleEmergencyDome() {
+            isIsolated = !isIsolated;
+            audio.playAlarm();
+            if (emergencyDomeMesh) emergencyDomeMesh.visible = isIsolated;
+            const statusText = document.getElementById('hazard-status-text');
+            const btnIsolate = document.getElementById('btn-isolate');
+            if (isIsolated) {
+                if (statusText) statusText.innerText = '高度危險警示 (已隔離)';
+                if (btnIsolate) btnIsolate.innerText = '解除 R-08 軌道隔離';
+                pushTerminalLog('HAZARD: ST-08 Containment dome ACTIVE');
+            } else {
+                if (statusText) statusText.innerText = '警示已解除';
+                if (btnIsolate) btnIsolate.innerText = '緊急隔離 R-08 軌道';
+                pushTerminalLog('HAZARD: ST-08 Containment dome RELEASED');
+            }
+        }
+
+        function triggerFireSuppression() {
+            audio.playBeep(900);
+            const flash = document.getElementById('emergency-flash');
+            if (flash) {
+                flash.style.opacity = '0.6';
+                setTimeout(() => flash.style.opacity = '0', 300);
+            }
+            pushTerminalLog('SAFETY: Automated FM-200 Fire Suppression Activated');
+        }
+
+        function spawn3DTrain() {
+            audio.playChime();
+            const lines = ['RED', 'BLUE', 'GREEN'];
+            const randLine = lines[Math.floor(Math.random() * lines.length)];
+            const id = `TR-${Math.floor(100 + Math.random() * 899)}`;
+            createTrain(randLine, Math.random(), id);
+            pushTerminalLog(`DISPATCH: Injected new 3D Train ${id} onto ${randLine} Line`);
+        }
+
+        function adjustHeadway(val) {
+            const el = document.getElementById('headway-val');
+            if (el) el.innerText = `${val} 秒`;
+        }
+
+        function resetAllSystems() {
+            audio.playChime();
+            pushTerminalLog('SYS_RESET: Re-initializing 3D Metro Control Center...');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        }
+
+        /* GLOBAL STATE VARIABLES FOR 3D ENGINE */
+        const activeTrains = [];
+        let trainTR204 = null;
+        const currentCamLookAt = new THREE.Vector3(0, 0, 0);
+        let currentCameraMode = 'ORBIT'; // 'ORBIT', 'FPV', 'TOP'
+        let isIsolated = true;
+
+        /* CH.5 VIRUS GAME VARIABLES */
+        let virusGameActive = false;
+        let virusScore = 0;
+        let virusThreat = 85;
+        let playerJet = null;
+        const activeViruses = [];
+        const activeBullets = [];
+        const activeExplosions = [];
+        const jetTargetPos = new THREE.Vector3(0, 15, 25);
+        let keyState = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false };
+
+        /* THREE.JS WORLD & SCENERY SETUP */
+        const container = document.getElementById('webgl-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x070a13, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(25, 30, 45);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        container.appendChild(renderer.domElement);
+
+        // Lighting System
+        const ambientLight = new THREE.AmbientLight(0x0a1628, 2.5);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0x00f3ff, 1.8);
+        dirLight.position.set(20, 40, 20);
+        scene.add(dirLight);
+
+        const pointLightHub = new THREE.PointLight(0xff0055, 3, 30);
+        pointLightHub.position.set(0, 2, 0);
+        scene.add(pointLightHub);
+
+        // Floor Grid Lines
+        const gridHelper = new THREE.GridHelper(120, 60, 0x00f3ff, 0x111e38);
+        gridHelper.position.y = -2;
+        scene.add(gridHelper);
+
+        /* METRO 3D LINES & SPLINES CURVES */
+        const lineCurves = {
+            RED: new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-35, 2, -25),
+                new THREE.Vector3(-18, 5, -10),
+                new THREE.Vector3(0, 2, 0),       // ST-08 Hub
+                new THREE.Vector3(18, -1, 12),
+                new THREE.Vector3(35, 4, 25)
+            ]),
+            BLUE: new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-35, -1, 20),
+                new THREE.Vector3(-15, 1, 10),
+                new THREE.Vector3(0, 2, 0),       // ST-08 Hub
+                new THREE.Vector3(20, 3, -10),
+                new THREE.Vector3(38, 0, -22)
+            ]),
+            GREEN: new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-25, 6, 30),
+                new THREE.Vector3(-10, 3, 15),
+                new THREE.Vector3(0, 2, 0),       // ST-08 Hub
+                new THREE.Vector3(12, 1, -15),
+                new THREE.Vector3(28, 5, -30)
+            ])
+        };
+
+        const lineColors = { RED: 0xff0055, BLUE: 0x00a2ff, GREEN: 0x00ff88 };
+
+        // Render Spline Tubes for Metro Tracks
+        Object.keys(lineCurves).forEach(key => {
+            const curve = lineCurves[key];
+            const geometry = new THREE.TubeGeometry(curve, 100, 0.25, 8, false);
+            const material = new THREE.MeshStandardMaterial({
+                color: lineColors[key],
+                emissive: lineColors[key],
+                emissiveIntensity: 0.6,
+                roughness: 0.2
+            });
+            const tube = new THREE.Mesh(geometry, material);
+            scene.add(tube);
+        });
+
+        /* 3D STATIONS & CENTRAL HUB DOME */
+        const stations = [
+            { id: 'ST-01', name: 'TAMSUI HUB', pos: new THREE.Vector3(-35, 2, -25), color: '#ff0055' },
+            { id: 'ST-04', name: 'BEITOU JUNCTION', pos: new THREE.Vector3(-18, 5, -10), color: '#ff0055' },
+            { id: 'ST-08', name: 'TAIPEI MAIN HUB', pos: new THREE.Vector3(0, 2, 0), color: '#ff0055' },
+            { id: 'ST-12', name: 'DAAN CENTRAL', pos: new THREE.Vector3(18, -1, 12), color: '#ff0055' },
+            { id: 'ST-16', name: 'XIANGSHAN TERMINAL', pos: new THREE.Vector3(35, 4, 25), color: '#ff0055' },
+            { id: 'ST-B02', name: 'BANQIAO WEST', pos: new THREE.Vector3(-35, -1, 20), color: '#00a2ff' },
+            { id: 'ST-B10', name: 'NANGANG EXHIBITION', pos: new THREE.Vector3(38, 0, -22), color: '#00a2ff' },
+            { id: 'ST-G05', name: 'SONGSHAN AIRPORT', pos: new THREE.Vector3(28, 5, -30), color: '#00ff88' }
+        ];
+
+        const stationMeshes = [];
+        const hudTagsContainer = document.getElementById('hud-tags-container');
+
+        stations.forEach(st => {
+            const geom = (typeof THREE.CapsuleGeometry === 'function')
+                ? new THREE.CapsuleGeometry(0.8, 1.2, 4, 16)
+                : new THREE.CylinderGeometry(0.8, 0.8, 1.2, 16);
+            const mat = new THREE.MeshStandardMaterial({
+                color: st.color,
+                emissive: st.color,
+                emissiveIntensity: 0.8,
+                wireframe: true
+            });
+            const mesh = new THREE.Mesh(geom, mat);
+            mesh.position.copy(st.pos);
+            scene.add(mesh);
+            stationMeshes.push({ mesh, data: st });
+
+            // Station Floating HUD Tag Element
+            const tagEl = document.createElement('div');
+            tagEl.className = 'hud-tag bg-slate-950/80 border border-slate-700 text-slate-200 text-[10px] font-mono px-2 py-1 rounded flex items-center gap-1.5 shadow-lg backdrop-blur';
+            tagEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full" style="background:${st.color}"></span><b>${st.id}</b>: ${st.name} <i data-lucide="search" class="w-3 h-3 text-hud-cyan ml-1"></i>`;
+            tagEl.onclick = () => openTelemetryModal(st.id, st.name);
+            hudTagsContainer.appendChild(tagEl);
+            st.tagElement = tagEl;
+        });
+
+        // 3D Emergency Containment Dome (ST-08 Hub)
+        const domeGeom = new THREE.SphereGeometry(4, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
+        const domeMat = new THREE.MeshStandardMaterial({
+            color: 0xff0055,
+            emissive: 0xff0055,
+            emissiveIntensity: 0.6,
+            transparent: true,
+            opacity: 0.35,
+            wireframe: true
+        });
+        const emergencyDomeMesh = new THREE.Mesh(domeGeom, domeMat);
+        emergencyDomeMesh.position.set(0, 2, 0);
+        scene.add(emergencyDomeMesh);
+
+        /* 3D TRAIN CREATION FACTORY */
+        function createTrain(lineName, progress = 0.1, id = 'TR-101', colorHex = null) {
+            const group = new THREE.Group();
+            const color = colorHex || lineColors[lineName] || 0x00f3ff;
+
+            const bodyGeom = new THREE.BoxGeometry(1.2, 0.8, 3.5);
+            const bodyMat = new THREE.MeshStandardMaterial({
+                color: 0x111e38,
+                metalness: 0.8,
+                roughness: 0.2
+            });
+            const bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
+            bodyMesh.position.y = 0.4;
+            group.add(bodyMesh);
+
+            const stripeGeom = new THREE.BoxGeometry(1.25, 0.15, 3.2);
+            const stripeMat = new THREE.MeshStandardMaterial({
+                color: color,
+                emissive: color,
+                emissiveIntensity: 0.9
+            });
+            const stripeMesh = new THREE.Mesh(stripeGeom, stripeMat);
+            stripeMesh.position.y = 0.5;
+            group.add(stripeMesh);
+
+            const lightGeom = new THREE.SphereGeometry(0.15, 8, 8);
+            const lightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const lightLeft = new THREE.Mesh(lightGeom, lightMat);
+            lightLeft.position.set(-0.4, 0.4, 1.75);
+            const lightRight = lightLeft.clone();
+            lightRight.position.x = 0.4;
+            group.add(lightLeft);
+            group.add(lightRight);
+
+            scene.add(group);
+
+            const trainObj = {
+                id: id,
+                mesh: group,
+                curve: lineCurves[lineName],
+                progress: progress,
+                speed: 0.0008 + Math.random() * 0.0006,
+                line: lineName
+            };
+
+            activeTrains.push(trainObj);
+            if (id === 'TR-204') {
+                trainTR204 = trainObj;
+            }
+
+            const countEl = document.getElementById('cnt-trains');
+            if (countEl) countEl.innerText = activeTrains.length;
+
+            return trainObj;
+        }
+
+        // Initialize Base Metro Trains
+        createTrain('RED', 0.1, 'TR-204', 0xff0055);
+        createTrain('RED', 0.6, 'TR-208', 0xff0055);
+        createTrain('BLUE', 0.2, 'TR-301', 0x00a2ff);
+        createTrain('BLUE', 0.75, 'TR-312', 0x00a2ff);
+        createTrain('GREEN', 0.35, 'TR-502', 0x00ff88);
+        createTrain('GREEN', 0.85, 'TR-509', 0x00ff88);
+
+        // 3D Ambient Dust Particle Matrix
+        const particleCount = 250;
+        const particleGeom = new THREE.BufferGeometry();
+        const particlePositions = new Float32Array(particleCount * 3);
+        for(let i = 0; i < particleCount * 3; i++) {
+            particlePositions[i] = (Math.random() - 0.5) * 100;
+        }
+        particleGeom.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+        const particleMat = new THREE.PointsMaterial({
+            color: 0x00f3ff,
+            size: 0.35,
+            transparent: true,
+            opacity: 0.5
+        });
+        const particles = new THREE.Points(particleGeom, particleMat);
+        scene.add(particles);
+
+        // Animated Energy Data Pulses on Metro Track Splines
+        const dataPulses = [];
+        const pulseGeom = new THREE.SphereGeometry(0.4, 8, 8);
+        const pulseMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff });
+
+        ['RED', 'BLUE', 'GREEN'].forEach(line => {
+            for(let p = 0; p < 3; p++) {
+                const pulseMesh = new THREE.Mesh(pulseGeom, pulseMat);
+                scene.add(pulseMesh);
+                dataPulses.push({
+                    mesh: pulseMesh,
+                    curve: lineCurves[line],
+                    progress: Math.random(),
+                    speed: 0.0015 + Math.random() * 0.0010
+                });
+            }
+        });
+
+        /* CAMERA & SCROLL STORYTELLING CONTROLLER */
+        function animateCameraToChapter(chIndex) {
+            currentCameraMode = 'ORBIT';
+            ['orbit', 'fpv', 'top'].forEach(m => {
+                const btn = document.getElementById(`cam-btn-${m}`);
+                if (btn) {
+                    btn.className = (m === 'orbit') 
+                        ? "px-2 py-0.5 rounded text-[10px] bg-hud-cyan/20 border border-hud-cyan/60 text-hud-cyan font-bold" 
+                        : "px-2 py-0.5 rounded text-[10px] text-slate-400 hover:text-hud-cyan";
+                }
+            });
+
+            if (chIndex === 1) {
+                gsap.to(camera.position, { x: 25, y: 30, z: 45, duration: 2, ease: "power2.inOut" });
+                gsap.to(currentCamLookAt, { x: 0, y: 2, z: 0, duration: 2, ease: "power2.inOut" });
+            } else if (chIndex === 2) {
+                if (trainTR204) {
+                    const pos = trainTR204.mesh.position;
+                    gsap.to(camera.position, { x: pos.x + 12, y: pos.y + 10, z: pos.z + 18, duration: 2, ease: "power2.inOut" });
+                    gsap.to(currentCamLookAt, { x: pos.x, y: pos.y, z: pos.z, duration: 2, ease: "power2.inOut" });
+                }
+            } else if (chIndex === 3) {
+                gsap.to(camera.position, { x: 8, y: 12, z: 15, duration: 2, ease: "power2.inOut" });
+                gsap.to(currentCamLookAt, { x: 0, y: 2, z: 0, duration: 2, ease: "power2.inOut" });
+            } else if (chIndex === 4) {
+                gsap.to(camera.position, { x: -20, y: 35, z: 20, duration: 2, ease: "power2.inOut" });
+                gsap.to(currentCamLookAt, { x: 0, y: 0, z: 0, duration: 2, ease: "power2.inOut" });
+            } else if (chIndex === 5) {
+                gsap.to(camera.position, { x: 0, y: 18, z: 42, duration: 2, ease: "power2.inOut" });
+                gsap.to(currentCamLookAt, { x: 0, y: 15, z: 0, duration: 2, ease: "power2.inOut" });
+            }
+        }
+
+        function navToChapter(chIndex) {
+            audio.playBeep(900);
+            for (let i = 1; i <= 5; i++) {
+                const tab = document.getElementById(`tab-ch${i}`);
+                if (tab) {
+                    if (i === chIndex) {
+                        tab.className = "px-3 py-1.5 rounded border border-hud-cyan/60 bg-hud-cyan/20 text-hud-cyan font-bold transition flex items-center gap-1.5";
+                    } else {
+                        tab.className = "px-3 py-1.5 rounded border border-slate-700 hover:border-hud-cyan/40 text-slate-400 hover:text-hud-cyan transition flex items-center gap-1.5";
+                    }
+                }
+            }
+
+            const targetSec = document.getElementById(`sec-${chIndex}`);
+            if (targetSec) {
+                targetSec.scrollIntoView({ behavior: 'smooth' });
+            }
+
+            animateCameraToChapter(chIndex);
+        }
+
+        // GSAP ScrollTrigger Integration
+        gsap.registerPlugin(ScrollTrigger);
+        [1, 2, 3, 4, 5].forEach(i => {
+            ScrollTrigger.create({
+                trigger: `#sec-${i}`,
+                start: "top center",
+                onEnter: () => animateCameraToChapter(i),
+                onEnterBack: () => animateCameraToChapter(i)
+            });
+        });
+
+        /* CH.5 VIRUS PURGE MINIGAME ENGINE */
+        function createPlayerJetMesh() {
+            if (playerJet) return;
+            const jetGroup = new THREE.Group();
+
+            // Fighter Fuselage
+            const bodyGeom = new THREE.ConeGeometry(0.8, 3.5, 5);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x00f3ff, emissive: 0x00f3ff, emissiveIntensity: 0.5, metalness: 0.9, roughness: 0.1 });
+            const bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
+            bodyMesh.rotation.x = Math.PI / 2;
+            jetGroup.add(bodyMesh);
+
+            // Wings
+            const wingGeom = new THREE.BoxGeometry(3.8, 0.1, 1.2);
+            const wingMat = new THREE.MeshStandardMaterial({ color: 0xb026ff, emissive: 0xb026ff, emissiveIntensity: 0.6 });
+            const wingMesh = new THREE.Mesh(wingGeom, wingMat);
+            wingMesh.position.z = 0.3;
+            jetGroup.add(wingMesh);
+
+            // Cockpit Glow
+            const podGeom = new THREE.SphereGeometry(0.4, 8, 8);
+            const podMat = new THREE.MeshBasicMaterial({ color: 0xff0055 });
+            const podMesh = new THREE.Mesh(podGeom, podMat);
+            podMesh.position.set(0, 0.3, -0.2);
+            jetGroup.add(podMesh);
+
+            jetGroup.position.copy(jetTargetPos);
+            scene.add(jetGroup);
+            playerJet = jetGroup;
+        }
+
+        // Create 8-Bit Pixel Voxel Ghost Invader Mesh
+        function create8BitGhostMesh() {
+            const ghostGroup = new THREE.Group();
+            const pixelMat = new THREE.MeshStandardMaterial({
+                color: 0xff0055,
+                emissive: 0xff0055,
+                emissiveIntensity: 0.8,
+                roughness: 0.3
+            });
+            const boxGeom = new THREE.BoxGeometry(0.35, 0.35, 0.35);
+
+            // 8-Bit Ghost Pixel Array Matrix (8x8 Grid)
+            const ghostPattern = [
+                [0,0,1,1,1,1,0,0],
+                [0,1,1,1,1,1,1,0],
+                [1,1,0,1,1,0,1,1],
+                [1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1],
+                [1,1,1,1,1,1,1,1],
+                [1,1,0,1,1,0,1,1],
+                [1,0,0,1,1,0,0,1]
+            ];
+
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (ghostPattern[r][c] === 1) {
+                        const pixel = new THREE.Mesh(boxGeom, pixelMat);
+                        pixel.position.set((c - 3.5) * 0.35, (3.5 - r) * 0.35, 0);
+                        ghostGroup.add(pixel);
+                    }
+                }
+            }
+
+            return ghostGroup;
+        }
+
+        function spawnVirus() {
+            if (!virusGameActive || activeViruses.length >= 8) return;
+            const ghostMesh = create8BitGhostMesh();
+            ghostMesh.position.set(
+                (Math.random() - 0.5) * 24,
+                12 + (Math.random() - 0.5) * 8,
+                -10 - Math.random() * 15
+            );
+            scene.add(ghostMesh);
+
+            activeViruses.push({
+                mesh: ghostMesh,
+                speedX: (Math.random() - 0.5) * 0.1,
+                speedY: (Math.random() - 0.5) * 0.05,
+                rotSpeed: (Math.random() - 0.5) * 0.04
+            });
+        }
+
+        function toggleVirusGame() {
+            virusGameActive = !virusGameActive;
+            const btn = document.getElementById('btn-toggle-virus-game');
+            const hint = document.getElementById('game-controls-hint');
+
+            if (virusGameActive) {
+                createPlayerJetMesh();
+                if (playerJet) playerJet.visible = true;
+                btn.innerHTML = `<i data-lucide="stop-circle" class="w-4 h-4"></i> ⏹ 停止清理作戰 (STOP PURGE)`;
+                btn.className = "w-full py-2.5 bg-hud-crimson/20 hover:bg-hud-crimson/40 border border-hud-crimson text-hud-crimson rounded font-orbitron font-bold text-xs tracking-wider transition flex items-center justify-center gap-2";
+                hint.classList.remove('hidden');
+                audio.playChime();
+                pushTerminalLog("ACTION: Cyber Fighter Deployed. 8-Bit Virus Purge Online!");
+            } else {
+                if (playerJet) playerJet.visible = false;
+                btn.innerHTML = `<i data-lucide="crosshair" class="w-4 h-4"></i> 🚀 啟動光子戰機 (START PURGE)`;
+                btn.className = "w-full py-2.5 bg-hud-purple/20 hover:bg-hud-purple/40 border border-hud-purple text-hud-purple rounded font-orbitron font-bold text-xs tracking-wider transition flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(176,38,255,0.3)]";
+                hint.classList.add('hidden');
+                audio.playBeep(400);
+            }
+        }
+
+        function shootLaser() {
+            if (!playerJet || !virusGameActive) return;
+            audio.playLaser();
+
+            const bulletGeom = new THREE.CylinderGeometry(0.1, 0.1, 1.2, 8);
+            const bulletMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff });
+            const bulletMesh = new THREE.Mesh(bulletGeom, bulletMat);
+            bulletMesh.rotation.x = Math.PI / 2;
+            bulletMesh.position.copy(playerJet.position);
+            bulletMesh.position.z -= 1.5;
+
+            scene.add(bulletMesh);
+            activeBullets.push({ mesh: bulletMesh, speed: 1.2 });
+        }
+
+        // Keyboard & Mouse Listeners for Jet Control
+        window.addEventListener('keydown', (e) => {
+            if (e.code in keyState) keyState[e.code] = true;
+            if (e.code === 'Space' && virusGameActive) {
+                e.preventDefault();
+                shootLaser();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.code in keyState) keyState[e.code] = false;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!virusGameActive || !playerJet) return;
+            const normX = (e.clientX / window.innerWidth - 0.5) * 30;
+            const normY = (0.5 - e.clientY / window.innerHeight) * 16 + 15;
+            jetTargetPos.x = normX;
+            jetTargetPos.y = normY;
+        });
+
+        function updateVirusGameLoop() {
+            if (!virusGameActive || !playerJet) return;
+
+            // Keyboard Movement
+            if (keyState.ArrowLeft) jetTargetPos.x -= 0.4;
+            if (keyState.ArrowRight) jetTargetPos.x += 0.4;
+            if (keyState.ArrowUp) jetTargetPos.y += 0.3;
+            if (keyState.ArrowDown) jetTargetPos.y -= 0.3;
+
+            // Clamp Jet Position
+            jetTargetPos.x = THREE.MathUtils.clamp(jetTargetPos.x, -16, 16);
+            jetTargetPos.y = THREE.MathUtils.clamp(jetTargetPos.y, 6, 24);
+
+            playerJet.position.lerp(jetTargetPos, 0.15);
+            playerJet.rotation.z = (playerJet.position.x - jetTargetPos.x) * 0.1;
+
+            // Spawn Viruses Randomly
+            if (Math.random() < 0.03) spawnVirus();
+
+            // Move Viruses
+            activeViruses.forEach((v, vIdx) => {
+                v.mesh.position.x += v.speedX;
+                v.mesh.position.y += v.speedY;
+                v.mesh.rotation.y += v.rotSpeed;
+
+                // Bounce Boundary
+                if (Math.abs(v.mesh.position.x) > 16) v.speedX *= -1;
+                if (v.mesh.position.y < 5 || v.mesh.position.y > 25) v.speedY *= -1;
+            });
+
+            // Move Bullets & Check Collisions
+            for (let bIdx = activeBullets.length - 1; bIdx >= 0; bIdx--) {
+                const b = activeBullets[bIdx];
+                b.mesh.position.z -= b.speed;
+
+                let bulletRemoved = false;
+
+                for (let vIdx = activeViruses.length - 1; vIdx >= 0; vIdx--) {
+                    const v = activeViruses[vIdx];
+                    const dist = b.mesh.position.distanceTo(v.mesh.position);
+
+                    if (dist < 1.8) {
+                        // HIT VIRUS!
+                        audio.playExplosion();
+                        scene.remove(v.mesh);
+                        scene.remove(b.mesh);
+
+                        activeViruses.splice(vIdx, 1);
+                        activeBullets.splice(bIdx, 1);
+                        bulletRemoved = true;
+
+                        // Update Score & Threat Status
+                        virusScore += 100;
+                        virusThreat = Math.max(0, virusThreat - 5);
+
+                        document.getElementById('virus-score').innerText = virusScore;
+                        document.getElementById('virus-threat').innerText = `${virusThreat}%`;
+
+                        if (virusThreat === 0) {
+                            document.getElementById('virus-badge').innerText = "系統已淨化 SAFE";
+                            document.getElementById('virus-badge').className = "px-2 py-0.5 bg-hud-emerald/20 border border-hud-emerald text-hud-emerald text-[10px] font-orbitron font-bold rounded";
+                            pushTerminalLog("SUCCESS: All 8-Bit Cyber Viruses Neutralized!");
+                        } else {
+                            pushTerminalLog(`PURGE: 8-Bit Ghost Neutralized (+100 PTS)`);
+                        }
+                        break;
+                    }
+                }
+
+                if (!bulletRemoved && b.mesh.position.z < -40) {
+                    scene.remove(b.mesh);
+                    activeBullets.splice(bIdx, 1);
+                }
+            }
+        }
+
+        /* MAIN WebGL RENDER & TELEMETRY LOOP */
+        let lastTime = performance.now();
+        let frameCount = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            frameCount++;
+            const now = performance.now();
+            if (now - lastTime >= 1000) {
+                const fpsEl = document.getElementById('fps-counter');
+                if (fpsEl) fpsEl.innerText = frameCount;
+                frameCount = 0;
+                lastTime = now;
+            }
+
+            const d = new Date();
+            const timeEl = document.getElementById('clock-time');
+            if (timeEl) {
+                timeEl.innerHTML = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}.<span class="text-[10px] text-slate-400">${String(d.getMilliseconds()).padStart(3, '0')}</span>`;
+            }
+
+            particles.rotation.y += 0.0005;
+
+            // Move Track Energy Pulses
+            dataPulses.forEach(p => {
+                p.progress += p.speed;
+                if (p.progress > 1) p.progress = 0;
+                const pos = p.curve.getPointAt(p.progress);
+                p.mesh.position.copy(pos);
+            });
+
+            // Move 3D Trains along CatmullRom Splines
+            activeTrains.forEach(tr => {
+                tr.progress += tr.speed;
+                if (tr.progress > 1) tr.progress = 0;
+
+                const pos = tr.curve.getPointAt(tr.progress);
+                const tangent = tr.curve.getTangentAt(tr.progress);
+
+                tr.mesh.position.copy(pos);
+                tr.mesh.lookAt(pos.clone().add(tangent));
+            });
+
+            // Update Virus Minigame Mechanics
+            updateVirusGameLoop();
+
+            // FPV Driver Cab Camera Lock on TR-204
+            if (currentCameraMode === 'FPV' && trainTR204) {
+                const trPos = trainTR204.mesh.position.clone();
+                const trTangent = trainTR204.curve.getTangentAt(trainTR204.progress);
+                camera.position.copy(trPos.clone().add(new THREE.Vector3(0, 1.2, 0)));
+                camera.lookAt(trPos.clone().add(trTangent.multiplyScalar(10)));
+            } else {
+                camera.lookAt(currentCamLookAt);
+            }
+
+            // Rotate Station 3D Meshes & Update Floating HUD Labels
+            stationMeshes.forEach(item => {
+                item.mesh.rotation.y += 0.01;
+
+                const vector = item.data.pos.clone();
+                vector.y += 1.5;
+                vector.project(camera);
+
+                const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (-(vector.y * 0.5) + 0.5) * window.innerHeight;
+
+                if (vector.z < 1) {
+                    item.data.tagElement.style.left = `${x}px`;
+                    item.data.tagElement.style.top = `${y}px`;
+                    item.data.tagElement.style.opacity = '1';
+                } else {
+                    item.data.tagElement.style.opacity = '0';
+                }
+            });
+
+            if (emergencyDomeMesh) {
+                emergencyDomeMesh.rotation.y += 0.005;
+            }
+
+            updateCCTVCanvas();
+            drawWaveform();
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        window.onload = () => {
+            animate();
+            pushTerminalLog("SYS_INIT: OCC 3D Matrix Engine Online");
+        };
+    </script>
+</body>
+</html>
